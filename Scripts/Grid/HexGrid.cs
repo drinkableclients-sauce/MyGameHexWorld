@@ -5,22 +5,25 @@ public class HexCell
 {
 	public int Id;
 	public Vector3 Position; 
-	public Vector3 Normal;   
+	public Vector3 Normal;    
 	
-	// --- LLAVE DE TERRENO (DESCRIPTOR DETERMINISTA) ---
-	public float Elevation;
-	public float Temperature; 
-	public string Biome;
-	public bool IsBuildable; 
-	public float ArableArea; 
-	public int ThreatLevel; 
+	// --- EL ACTA DE NACIMIENTO (BASAL KEY INMUTABLE) ---
+	public BasalKey BirthKey;
+
+	// Propiedades de conveniencia enlazadas directamente al ADN de la BasalKey
+	public float Elevation => BirthKey != null ? BirthKey.BaseElevation : 0f;
+	public float Temperature => 1.0f - Mathf.Abs(Normal.Y); 
+	public string Biome => BirthKey != null ? BirthKey.Biome : "Desconocido";
+	public bool IsBuildable => BirthKey != null && BirthKey.BuildableArea > 0.3f; 
+	public float ArableArea => BirthKey != null ? BirthKey.ArableArea : 0f; 
+	public int ThreatLevel => BirthKey != null ? BirthKey.ThreatLevel : 0; 
 	
-	// Datos de congruencia de agua y orientación cardinal
-	public bool HasSeaConnection;
-	public bool NorthWater;
-	public bool SouthWater;
-	public bool EastWater;
-	public bool WestWater;
+	// Datos de congruencia de agua heredados de la BasalKey
+	public bool HasSeaConnection => BirthKey != null && BirthKey.WaterRatio > 0.4f;
+	public bool NorthWater { get; set; }
+	public bool SouthWater { get; set; }
+	public bool EastWater { get; set; }
+	public bool WestWater { get; set; }
 	
 	public List<Vector3[]> TileEdges = new List<Vector3[]>(); 
 }
@@ -201,36 +204,31 @@ public partial class HexGrid : Node3D
 
 	private HexCell CalculateCellData(int id, Vector3 dir)
 	{
-		float latitude = Mathf.Abs(dir.Y);
-		float rawNoise = (PlanetNode.Noise.GetNoise3D(dir.X * 100, dir.Y * 100, dir.Z * 100) + 1.0f) * 0.5f;
-		float curvedNoise = Mathf.Pow(rawNoise, PlanetNode.TerrainExponent);
-		float elevation = Mathf.Clamp(curvedNoise, PlanetNode.MinHeightLimit, PlanetNode.MaxHeightLimit);
-		float moisture = (PlanetNode.MoistureNoise.GetNoise3D(dir.X * 150, dir.Y * 150, dir.Z * 150) + 1.0f) * 0.5f;
+		// 1. Obtenemos los parámetros globales del WorldSettings (o valores por defecto si no existe)
+		long globalSeed = WorldSettings.Instance != null ? WorldSettings.Instance.GlobalSeed : 1337;
+		float seaLevel = WorldSettings.Instance != null ? WorldSettings.Instance.SeaLevelThreshold : PlanetNode.WaterLevel;
+		float roughness = WorldSettings.Instance != null ? WorldSettings.Instance.RoughnessMultiplier : 1.0f;
 
-		if (latitude > 0.75f)
-		{
-			float snowBlend = Mathf.SmoothStep(0.0f, 1.0f, (latitude - 0.75f) / 0.15f);
-			float iceHeight = PlanetNode.WaterLevel + 0.05f;
-			if (elevation < iceHeight) elevation = Mathf.Lerp(elevation, iceHeight, snowBlend);
-		}
+		// 2. Determinamos si es un pentágono (los primeros 12 vértices del icosaedro base)
+		bool isPentagon = id < 12;
 
-		Vector3 finalPosition = dir * (PlanetNode.Radius + (elevation * PlanetNode.Height));
-		bool isWater = elevation <= PlanetNode.WaterLevel;
-		bool isBeach = !isWater && elevation <= PlanetNode.WaterLevel + 0.04f;
-		bool isPolar = latitude > 0.75f;
-		bool isDesert = moisture < 0.45f && !isPolar;
+		// 3. INVOCAMOS EL GÉNESIS: Creamos y sellamos el Acta de Nacimiento (BasalKey) de la celda
+		BasalKey basalKey = new BasalKey();
+		basalKey.GenerateGenesis(globalSeed, id, dir, isPentagon, seaLevel, roughness);
 
+		// 4. Calculamos la posición tridimensional final sobre la esfera usando la elevación de su nacimiento
+		Vector3 finalPosition = dir * (PlanetNode.Radius + (basalKey.BaseElevation * PlanetNode.Height));
+
+		// 5. Construimos la HexCell vinculándola con su BasalKey
 		HexCell cell = new HexCell {
-			Id = id, Position = finalPosition, Normal = dir,
-			Elevation = elevation, Temperature = 1.0f - latitude, HasSeaConnection = isBeach,
-			IsBuildable = !isWater && (elevation < PlanetNode.MaxHeightLimit * 0.8f) 
+			Id = id, 
+			Position = finalPosition, 
+			Normal = dir,
+			BirthKey = basalKey
 		};
 
-		if (isWater) { cell.Biome = "Océano Profundo"; cell.ArableArea = 0f; cell.ThreatLevel = 8; }
-		else if (isPolar) { cell.Biome = "Casquete Polar"; cell.ArableArea = 0f; cell.ThreatLevel = 10; }
-		else if (isDesert) { cell.Biome = "Desierto Árido"; cell.ArableArea = 0.10f; cell.ThreatLevel = 6; }
-		else { cell.Biome = "Pradera Fértil"; cell.ArableArea = moisture; cell.ThreatLevel = 2; }
-		if (isBeach) cell.Biome = "Costa / Playa";
+		// Sincronizamos las aristas para que la BasalKey y la Celda compartan la geometría
+		basalKey.TileEdges = cell.TileEdges;
 
 		return cell;
 	}

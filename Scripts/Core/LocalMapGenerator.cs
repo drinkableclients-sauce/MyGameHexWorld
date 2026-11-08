@@ -9,10 +9,11 @@ public partial class LocalMapGenerator : Node3D
 	private FastNoiseLite _terrainNoise;
 
 	[Export] public float LocalDayNightSpeed = 0.005f; 
-	[Export] public float MeshScale = 350.0f; // ¡Ahora este valor hará que el hexágono crezca a lo grande!
+	[Export] public float MeshScale = 1.0f; 
 	[Export] public float WaterLevel = 0.5f; 
 
-	private float _terrainRadius = 50.0f; // Radio real calculado por el generador de mallas
+	private float _terrainRadius = 80.0f; 
+	private Vector2[] _localPolygonVertices;
 
 	public override void _Ready()
 	{
@@ -31,7 +32,7 @@ public partial class LocalMapGenerator : Node3D
 		_terrainNoise = new FastNoiseLite();
 		_terrainNoise.Seed = GameManager.Instance.GlobalSeed + _cellData.Id;
 		_terrainNoise.NoiseType = FastNoiseLite.NoiseTypeEnum.Simplex;
-		_terrainNoise.Frequency = 0.01f; 
+		_terrainNoise.Frequency = 0.008f; 
 
 		BuildScene();
 		ConfigureCameraAndLimits();
@@ -46,8 +47,17 @@ public partial class LocalMapGenerator : Node3D
 	{
 		GD.Print($"--- CARGANDO SECTOR TÁCTICO: TILE #{_cellData.Id} [{_cellData.Biome}] ---");
 
-		// 1. Terreno Poligonal (capturando el radio real exacto)
-		var terrainMesh = PolygonalMeshBuilder.BuildTerrainMesh(_cellData, MeshScale, _terrainNoise, out Vector3 centerPos, out _terrainRadius);
+		float planetRadius = 100.0f;
+		var planetNode = GetTree().Root.FindChild("Planet", true, false) as Planet;
+		if (planetNode != null) planetRadius = planetNode.Radius;
+
+		// 1. Usamos nuestro CellGeometryProvider unificado para extraer la geometría limpia
+		var geometryProvider = new CellGeometryProvider(_cellData, planetRadius, 120.0f * MeshScale);
+		_localPolygonVertices = geometryProvider.GetLocalPolygon();
+		_terrainRadius = geometryProvider.GetMaxRadius();
+
+		// 2. Terreno Poligonal
+		var terrainMesh = PolygonalMeshBuilder.BuildTerrainMesh(_cellData, planetRadius, MeshScale, _terrainNoise, out Vector3 centerPos, out _terrainRadius);
 		var terrainInstance = new MeshInstance3D { Mesh = terrainMesh };
 
 		var mat = new StandardMaterial3D();
@@ -56,11 +66,14 @@ public partial class LocalMapGenerator : Node3D
 		terrainInstance.MaterialOverride = mat;
 		AddChild(terrainInstance);
 
-		// 2. Agua condicional
-		bool isWaterCell = _cellData.Elevation <= 0.40f || _cellData.HasSeaConnection || _cellData.Biome.Contains("Océano") || _cellData.Biome.Contains("Costa");
-		float targetWaterLevel = isWaterCell ? WaterLevel : -50.0f; 
+		// 3. AGUA FIEL A LA BASAL KEY (BK) DE LA CELDA
+		// Evaluamos la elevación y si el bioma o sus conexiones indican agua real
+		bool hasWater = _cellData.Elevation <= 0.45f || _cellData.HasSeaConnection || _cellData.Biome.Contains("Océano") || _cellData.Biome.Contains("Costa") || _cellData.Biome.Contains("Lago");
+		
+		// Si la celda es tierra alta pero tiene un lago interno registrado, permitimos agua parcial
+		float targetWaterLevel = hasWater ? WaterLevel : -200.0f; 
 
-		var waterMesh = PolygonalMeshBuilder.BuildWaterMesh(_cellData, MeshScale, targetWaterLevel);
+		var waterMesh = PolygonalMeshBuilder.BuildWaterMesh(_cellData, planetRadius, MeshScale, targetWaterLevel);
 		var waterMat = new StandardMaterial3D 
 		{ 
 			AlbedoColor = new Color(0.12f, 0.45f, 0.85f, 0.75f), 
@@ -97,7 +110,7 @@ public partial class LocalMapGenerator : Node3D
 				float noiseVal = (_terrainNoise.GetNoise2D(nx * 15.0f, nz * 15.0f) + 1.0f) * 0.5f;
 				float heightSample = noiseVal * 40.0f; 
 				
-				float contourInterval = 3.0f; 
+				float contourInterval = 4.0f; 
 				float mod = Mathf.Abs(heightSample % contourInterval);
 				
 				Color pixelColor = baseColor;
@@ -116,53 +129,91 @@ public partial class LocalMapGenerator : Node3D
 	}
 
 	private void PopulateResources()
+{
+	int targetTrees = Mathf.RoundToInt(150 * _cellData.ArableArea);
+
+	for (int i = 0; i < targetTrees; i++)
 	{
-		int targetTrees = Mathf.RoundToInt(250 * _cellData.ArableArea);
+		// Generamos un punto aleatorio dentro del radio del terreno
+		float rx = _rng.RandfRange(-0.9f, 0.9f) * _terrainRadius;
+		float rz = _rng.RandfRange(-0.9f, 0.9f) * _terrainRadius;
+		Vector2 candidatePos = new Vector2(rx, rz);
 
-		for (int i = 0; i < targetTrees; i++)
+		// Validamos estrictamente que el punto esté DENTRO del polígono del hexágono/pentágono
+		if (_localPolygonVertices != null && _localPolygonVertices.Length >= 3)
 		{
-			// Usamos _terrainRadius real para que los árboles nazcan dentro del polígono ensanchado
-			float rx = _rng.RandfRange(-0.8f, 0.8f) * _terrainRadius;
-			float rz = _rng.RandfRange(-0.8f, 0.8f) * _terrainRadius;
-			Vector3 pos = new Vector3(rx, 0, rz);
-			
-			float groundY = PolygonalMeshBuilder.GetHeight(pos, _cellData, _terrainNoise); 
-			if (groundY < WaterLevel + 0.3f) continue; 
-
-			float treeHeight = _rng.RandfRange(3.0f, 6.0f);
-			var tree = new CsgBox3D { Size = new Vector3(1.5f, treeHeight, 1.5f), Position = new Vector3(pos.X, groundY + (treeHeight / 2.0f) - 0.4f, pos.Z) };
-			tree.MaterialOverride = new StandardMaterial3D { AlbedoColor = new Color(0.1f, 0.35f, 0.12f) };
-			AddChild(tree);
+			candidatePos = PolygonBoundaryConstraint.ConstrainPosition(candidatePos, _localPolygonVertices);
+			// Si el punto fue forzado a moverse mucho hacia el borde, podemos omitirlo para que no se amontone
+			if (candidatePos.DistanceTo(new Vector2(rx, rz)) > 2.0f) continue;
 		}
-	}
 
-	private void SpawnThreats()
+		Vector3 pos = new Vector3(candidatePos.X, 0, candidatePos.Y);
+		float groundY = PolygonalMeshBuilder.GetHeight(pos, _cellData, _terrainNoise);
+
+		// RESTRICCIÓN DE AGUA: Si la altura del suelo está bajo el nivel del agua, no nace el árbol
+		bool hasWater = _cellData.Elevation <= 0.45f || _cellData.HasSeaConnection || _cellData.Biome.Contains("Océano") || _cellData.Biome.Contains("Costa") || _cellData.Biome.Contains("Lago");
+		float currentWaterThreshold = hasWater ? WaterLevel : -999.0f;
+
+		if (groundY < currentWaterThreshold + 0.5f) continue; // Evita que nazcan en el agua
+		float treeHeight = _rng.RandfRange(2.5f, 4.5f);
+		var tree = new CsgBox3D { Size = new Vector3(1.2f, treeHeight, 1.2f), Position = new Vector3(pos.X, groundY + (treeHeight / 2.0f) - 0.4f, pos.Z) };
+		tree.MaterialOverride = new StandardMaterial3D { AlbedoColor = new Color(0.1f, 0.35f, 0.12f) };
+		AddChild(tree);
+	}
+}
+
+private void SpawnThreats()
+{
+	for (int i = 0; i < _cellData.ThreatLevel; i++)
 	{
-		for (int i = 0; i < _cellData.ThreatLevel; i++)
-		{
-			float rx = _rng.RandfRange(-0.8f, 0.8f) * _terrainRadius;
-			float rz = _rng.RandfRange(-0.8f, 0.8f) * _terrainRadius;
-			Vector3 pos = new Vector3(rx, 0, rz);
-			
-			float groundY = PolygonalMeshBuilder.GetHeight(pos, _cellData, _terrainNoise); 
-			if (groundY < WaterLevel + 0.3f) continue; 
+		float rx = _rng.RandfRange(-0.9f, 0.9f) * _terrainRadius;
+		float rz = _rng.RandfRange(-0.9f, 0.9f) * _terrainRadius;
+		Vector2 candidatePos = new Vector2(rx, rz);
 
-			float enemySize = 2.0f;
-			var enemy = new CsgBox3D { Size = new Vector3(enemySize, enemySize, enemySize), Position = new Vector3(pos.X, groundY + (enemySize / 2.0f), pos.Z) };
-			enemy.MaterialOverride = new StandardMaterial3D { AlbedoColor = new Color(0.65f, 0.12f, 0.12f) };
-			AddChild(enemy);
+		if (_localPolygonVertices != null && _localPolygonVertices.Length >= 3)
+		{
+			candidatePos = PolygonBoundaryConstraint.ConstrainPosition(candidatePos, _localPolygonVertices);
+			if (candidatePos.DistanceTo(new Vector2(rx, rz)) > 2.0f) continue;
 		}
+
+		Vector3 pos = new Vector3(candidatePos.X, 0, candidatePos.Y);
+		float groundY = PolygonalMeshBuilder.GetHeight(pos, _cellData, _terrainNoise);
+
+		bool hasWater = _cellData.Elevation <= 0.42f || _cellData.HasSeaConnection || _cellData.Biome.Contains("Océano") || _cellData.Biome.Contains("Costa") || _cellData.Biome.Contains("Lago");
+		float currentWaterThreshold = hasWater ? WaterLevel : -999.0f;
+
+		if (groundY < currentWaterThreshold + 0.8f) continue;
+
+		float enemySize = 1.8f;
+		var enemy = new CsgBox3D { Size = new Vector3(enemySize, enemySize, enemySize), Position = new Vector3(pos.X, groundY + (enemySize / 2.0f), pos.Z) };
+		enemy.MaterialOverride = new StandardMaterial3D { AlbedoColor = new Color(0.65f, 0.12f, 0.12f) };
+		AddChild(enemy);
 	}
+}
 
 	private void ConfigureCameraAndLimits()
 	{
 		var camera = GetTree().Root.FindChild("TacticalCamera", true, false) as TacticalCamera;
-		if (camera != null)
+		if (camera != null && _localPolygonVertices != null)
 		{
-			// La cámara usará exactamente el radio real del terreno ensanchado
-			camera.MapLimit = _terrainRadius * 0.9f;
-			camera.GlobalPosition = new Vector3(0, camera.GlobalPosition.Y, 0);
-			GD.Print($"[LocalMapGenerator] Hexágono expandido. Radio real: {_terrainRadius}, Límite cámara: {camera.MapLimit}");
+			// Inyectamos el polígono exacto del CellGeometryProvider directamente a la cámara
+			camera.SetMapBoundaries(_localPolygonVertices);
+			camera.GlobalPosition = new Vector3(0, camera.GlobalPosition.Y + 20.0f, 0);
+			GD.Print($"[LocalMapGenerator] Polígono inyectado a la cámara con éxito. Vértices: {_localPolygonVertices.Length}");
 		}
+	}
+	public override void _Input(InputEvent @event)
+	{
+		// Al presionar Escape salimos del tile táctico y volvemos al mundo (esfera)
+		if (@event is InputEventKey keyEvent && keyEvent.Pressed && keyEvent.Keycode == Key.Escape)
+		{
+			ReturnToWorld();
+		}
+	}
+
+	private void ReturnToWorld()
+	{
+		GD.Print("[LocalMapGenerator] Saliendo del sector táctico. Regresando al planeta...");
+		GetTree().ChangeSceneToFile("res://Scenes/World/Planet.tscn");
 	}
 }
