@@ -1,0 +1,35 @@
+[gd_scene format=3 uid="uid://btf7p68db2hk4"]
+
+[ext_resource type="Script" uid="uid://dro5shk7n6gmm" path="res://Scripts/Core/Planet.cs" id="1_lewkl"]
+[ext_resource type="Script" uid="uid://dt1e0jns1ot8c" path="res://Scripts/Camera/RTSCamera.cs" id="2_nxeou"]
+[ext_resource type="Script" uid="uid://b6wxi5tmfufkx" path="res://Scripts/Grid/HexGrid.cs" id="3_ik7lj"]
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_lewkl"]
+noise_type = 0
+seed = 1337
+frequency = 0.05
+
+[node name="Planet" type="Node3D" unique_id=1408305262]
+script = ExtResource("1_lewkl")
+Noise = SubResource("FastNoiseLite_lewkl")
+Detail = 64
+Height = 0.05
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1023957976]
+transform = Transform3D(-0.97882754, 0.14409418, -0.14409418, 0, 0.70710677, 0.70710677, 0.20376563, 0.6921983, -0.6921983, 0, 0, 0)
+
+[node name="CameraPivot" type="Node3D" parent="." unique_id=1730420756]
+script = ExtResource("2_nxeou")
+zoomSpeed = 2.5
+minZoom = 9.0
+maxZoom = 26.0
+
+[node name="Camera3D" type="Camera3D" parent="CameraPivot" unique_id=1262793657]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 30)
+current = true
+
+[node name="HexGridManager" type="Node3D" parent="." unique_id=972950947 node_paths=PackedStringArray("PlanetNode")]
+script = ExtResource("3_ik7lj")
+PlanetNode = NodePath("..")
+GridHoverOffset = 0.05
+CursorHoverOffset = 0.15

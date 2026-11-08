@@ -11,12 +11,26 @@ config_version=5
 [application]
 
 config/name="MyGameHexWorld"
-config/features=PackedStringArray("4.6", "Forward Plus")
+run/main_scene="uid://btf7p68db2hk4"
+config/features=PackedStringArray("4.6", "C#", "Forward Plus")
 config/icon="res://icon.svg"
+
+[autoload]
+
+GameManager="*uid://dsf4it77yudtx"
 
 [dotnet]
 
 project/assembly_name="MyGameHexWorld"
+
+[file_customization]
+
+folder_colors={
+"res://Assets/": "yellow",
+"res://Resources/": "orange",
+"res://Scenes/": "teal",
+"res://Scripts/": "red"
+}
 
 [physics]
 

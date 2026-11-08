@@ -1,0 +1,12 @@
+[gd_scene format=3 uid="uid://doqdqdrqiykv5"]
+
+[ext_resource type="Script" uid="uid://cfcn0n6pu3ftr" path="res://Scripts/Core/LocalMapGenerator.cs" id="1_kcsbd"]
+[ext_resource type="Script" uid="uid://d2b6e47mttjbr" path="res://Scripts/Camera/TacticalCamera.cs" id="2_fa3jh"]
+
+[node name="LocalSelector" type="Node3D" unique_id=403156037]
+script = ExtResource("1_kcsbd")
+MapSize = 726.0
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1514243528]
+transform = Transform3D(1, 0, 0, 0, 0.70710677, 0.70710677, 0, -0.70710677, 0.70710677, 0, 180, 150)
+script = ExtResource("2_fa3jh")

@@ -1,3 +1,16 @@
 [gd_scene format=3 uid="uid://bbuuw0vos50c0"]
 
-[node name="HexCell" type="Node2D" unique_id=221259677]
+[sub_resource type="CylinderMesh" id="CylinderMesh_meduo"]
+top_radius = 1.8
+bottom_radius = 1.8
+height = 0.2
+radial_segments = 6
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_nrg7s"]
+albedo_color = Color(0.16987771, 0.5293271, 0.23562914, 1)
+
+[node name="HexCell" type="Node3D" unique_id=1420152360]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=434257756]
+mesh = SubResource("CylinderMesh_meduo")
+surface_material_override/0 = SubResource("StandardMaterial3D_nrg7s")
