@@ -1,68 +1,116 @@
 using Godot;
-using System.Collections.Generic;
+using Godot.Collections;
 
-public class BasalKey
+public partial class BasalKey : RefCounted
 {
-	// 1. Identidad y Posición Inmutable
+	// --- DATOS BASE DEL TILE ---
 	public int Id { get; set; }
-	public Vector3 Normal { get; set; }
-	public bool IsPentagon { get; set; }
-	
-	// 2. Topografía y ADN Geomorfológico
+	public int RoughnessSeed { get; set; }
+	public Vector3 SphericalPosition { get; set; }
 	public float BaseElevation { get; set; }
 	public float WaterRatio { get; set; }
-	public ulong RoughnessSeed { get; set; }
-	
-	// 3. Capacidad Económica y Táctica
-	public float ArableArea { get; set; }      // Porcentaje de suelo fértil
-	public float BuildableArea { get; set; }  // Porcentaje de superficie firme y plana para construir
+	public float BuildableArea { get; set; }
 	public int ThreatLevel { get; set; }
-	public string Biome { get; set; }
+	public string Biome { get; set; } = "Desconocido";
+	
+	// Propiedad que el LocalMapGenerator estaba buscando
+	public Array<Vector3> TileVertices { get; set; } = new Array<Vector3>();
 
-	// 4. Geometría y Fronteras (Aristas físicas del tile)
-	public List<Vector3[]> TileEdges { get; set; } = new List<Vector3[]>();
+	// --- FASE 1: DEMOGRAFÍA, ASENTAMIENTO E INVENTARIO LOCAL ---
+	public bool HasSettlement { get; set; } = false;
+	public string SettlementName { get; set; } = "Tierras Vírgenes";
+	
+	public int TotalPopulation { get; set; } = 0;
+	public int SurplusPopulation { get; set; } = 0;
+	public float Happiness { get; set; } = 80.0f;
 
-	/// <summary>
-	/// Ejecuta el "Génesis" o nacimiento determinista de la celda utilizando la semilla global
-	/// y los parámetros configurados en el menú (WorldSettings).
-	/// </summary>
-	public void GenerateGenesis(long globalSeed, int cellId, Vector3 normal, bool isPentagon, float seaLevelThreshold, float roughnessMultiplier)
+	public Dictionary<string, int> LocalInventory { get; private set; } = new Dictionary<string, int>()
 	{
-		Id = cellId;
-		Normal = normal.Normalized();
-		IsPentagon = isPentagon;
+		{ "Comida", 0 },
+		{ "Madera", 0 },
+		{ "Minerales", 0 },
+		{ "Hierro", 0 },
+		{ "Cobre", 0 }
+	};
 
-		// Creamos un RNG determinista exclusivo para esta celda combinando la semilla global y su ID
-		ulong cellSeed = (ulong)globalSeed + ((ulong)cellId * 73856093UL);
+	public int MaxStorageCapacity { get; set; } = 500;
+
+	// --- FASE 2: EDIFICIOS Y TECNOLOGÍAS LOCALES ---
+	public Array<string> ConstructedBuildings { get; private set; } = new Array<string>();
+	public Array<string> UnlockedTechnologies { get; private set; } = new Array<string>();
+
+	public void Initialize(int id, int genesisSeed, Vector3 sphericalPosition)
+	{
+		Id = id;
+		SphericalPosition = sphericalPosition;
+		
 		var rng = new RandomNumberGenerator();
-		rng.Seed = cellSeed;
+		rng.Seed = (ulong)(genesisSeed + (id * 73856093) ^ (int)(sphericalPosition.X * 1000));
+		
+		var worldConfig = GameManager.Instance != null ? GameManager.Instance.CurrentWorldConfig : new WorldConfig();
 
-		// Semilla de relieve única para el diorama local
-		RoughnessSeed = rng.Randi();
+		float landmassBias = 0.0f;
+		if (worldConfig.LandmassType == WorldLandmassType.Pangea) landmassBias = 0.40f;
+		else if (worldConfig.LandmassType == WorldLandmassType.Archipiélago) landmassBias = -0.35f;
 
-		// 1. Generación de Elevación Base (con una leve modulación espacial basada en su normal)
-		float spatialNoise = (Mathf.Sin(Normal.X * 4.0f) + Mathf.Cos(Normal.Y * 4.0f) + 1.0f) * 0.5f;
-		BaseElevation = (rng.RandfRange(0.15f, 0.85f) * 0.4f + spatialNoise * 0.6f);
+		RoughnessSeed = (int)rng.RandiRange(1000, 999999);
+		
+		float rawElevation = rng.RandfRange(-0.6f, 1.0f);
+		BaseElevation = (rawElevation + landmassBias) * worldConfig.MountainFrequency;
+		BaseElevation = Mathf.Clamp(BaseElevation, -0.9f, 1.2f);
 
-		// 2. Determinación de Agua (WaterRatio) enlazada estrictamente al umbral del menú
-		if (BaseElevation <= seaLevelThreshold)
-		{
-			WaterRatio = rng.RandfRange(0.5f, 1.0f); // Océano o costa profunda
-			Biome = WaterRatio > 0.8f ? "Océano" : "Costa";
-		}
+		WaterRatio = BaseElevation < 0.0f ? rng.RandfRange(0.5f, 0.95f) : rng.RandfRange(0.0f, 0.25f);
+		if (worldConfig.LandmassType == WorldLandmassType.Archipiélago) WaterRatio *= 1.3f;
+
+		BuildableArea = Mathf.Clamp(1.0f - Mathf.Abs(BaseElevation), 0.1f, 1.0f);
+		ThreatLevel = (int)((rng.Randf() * 4.0f) * (worldConfig.ResourceAbundanceMultiplier < 1.0f ? 1.5f : 1.0f));
+
+		float latitude = Mathf.Abs(sphericalPosition.Normalized().Y);
+		if (BaseElevation < -0.3f) Biome = latitude > 0.75f ? "Océano Polar" : "Océano Profundo";
+		else if (BaseElevation < 0.0f) Biome = latitude > 0.75f ? "Costa Helada" : "Costa / Ribera";
+		else if (latitude > 0.8f) Biome = "Casquete Polar / Tundra";
+		else if (latitude > 0.5f) Biome = BaseElevation > 0.5f ? "Montaña Alpina" : "Bosque Frío / Taiga";
 		else
 		{
-			WaterRatio = rng.RandfRange(0.0f, 0.2f); // Tierra firme o lago menor interior
-			Biome = WaterRatio > 0.08f ? "Lago Interior" : "Pradera Fértil";
+			if (WaterRatio > 0.5f) Biome = "Lago Interior / Humedal";
+			else if (BuildableArea > 0.68f) Biome = "Pradera Fértil";
+			else Biome = "Desierto / Estepa";
 		}
+	}
 
-		// 3. Cálculo de Áreas de Zonificación (Cultivable y Edificable)
-		// Las zonas muy empinadas o con mucha agua reducen el área edificable
-		float slopeFactor = Mathf.Abs(BaseElevation - 0.5f);
-		BuildableArea = Mathf.Clamp(1.0f - (slopeFactor * 1.8f) - (WaterRatio * 0.4f), 0.05f, 0.95f);
-		ArableArea = Mathf.Clamp(rng.RandfRange(0.25f, 0.9f) * (1.0f - slopeFactor * 0.5f), 0.1f, 0.9f);
+	public bool AddResource(string resourceName, int amount)
+	{
+		if (!LocalInventory.ContainsKey(resourceName)) return false;
 
-		// 4. Nivel de amenaza procedural inicial
-		ThreatLevel = rng.RandiRange(0, 5);
+		int currentTotal = 0;
+		foreach (var kvp in LocalInventory) currentTotal += kvp.Value;
+
+		if (currentTotal + amount > MaxStorageCapacity) return false;
+
+		LocalInventory[resourceName] += amount;
+		return true;
+	}
+
+	public bool ConsumeResource(string resourceName, int amount)
+	{
+		if (!LocalInventory.ContainsKey(resourceName)) return false;
+		if (LocalInventory[resourceName] < amount) return false;
+
+		LocalInventory[resourceName] -= amount;
+		return true;
+	}
+
+	public void FoundSettlement(string name)
+	{
+		HasSettlement = true;
+		SettlementName = name;
+		TotalPopulation = 10;
+		SurplusPopulation = 0;
+		
+		LocalInventory["Comida"] = 100;
+		LocalInventory["Madera"] = 150;
+		LocalInventory["Minerales"] = 50;
+
+		GD.Print($"[ATK #{Id}] ¡Asentamiento '{SettlementName}' fundado con éxito!");
 	}
 }

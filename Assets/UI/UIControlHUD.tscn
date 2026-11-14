@@ -1,0 +1,10 @@
+[gd_scene format=3 uid="uid://ciq0ceg841n3n"]
+
+[ext_resource type="Script" uid="uid://tm4m60od816b" path="res://Scripts/UI/LocalHUD.cs" id="1_octle"]
+
+[node name="UIControl" type="Control" unique_id=439909013]
+layout_mode = 3
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+script = ExtResource("1_octle")
