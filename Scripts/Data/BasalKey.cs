@@ -13,7 +13,12 @@ public partial class BasalKey : RefCounted
 	public int ThreatLevel { get; set; }
 	public string Biome { get; set; } = "Desconocido";
 	public Array<int> NeighborIds { get; set; } = new Array<int>();
-	
+
+	public Vector3 OriginCoordinates { get; set; }
+	public Vector3[] CornerDirections { get; set; }
+	public float SeaLevelOffset { get; set; } = 0.15f;
+	public float ElevationHeight { get; set; } = 1.0f;
+
 	// Propiedad que el LocalMapGenerator estaba buscando
 	public Array<Vector3> TileVertices { get; set; } = new Array<Vector3>();
 
@@ -44,6 +49,7 @@ public partial class BasalKey : RefCounted
 	{
 		Id = id;
 		SphericalPosition = sphericalPosition;
+		OriginCoordinates = sphericalPosition;
 		
 		var rng = new RandomNumberGenerator();
 		rng.Seed = (ulong)(genesisSeed + (id * 73856093) ^ (int)(sphericalPosition.X * 1000));

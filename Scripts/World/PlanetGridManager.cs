@@ -250,8 +250,36 @@ public partial class PlanetGridManager : Node3D
 		}
 		else if (@event is InputEventMouseButton mb && mb.Pressed && mb.ButtonIndex == MouseButton.Left)
 		{
-			if (_hoveredTileId != -1)
-				GD.Print($"[PlanetGridManager] Sector #{_hoveredTileId} seleccionado ({_tiles[_hoveredTileId].BuildablePercent}% edificable).");
+			if (_hoveredTileId != -1 && _tiles.TryGetValue(_hoveredTileId, out var selectedTile))
+			{
+				if (GameManager.Instance != null)
+				{
+					var cellData = new BasalKey();
+					Vector3 worldCenterDir = (Transform.Basis * selectedTile.CenterDir).Normalized();
+					cellData.Initialize(selectedTile.Id, GameManager.Instance.GenesisSeed, worldCenterDir);
+					cellData.Biome = selectedTile.DominantBiome;
+					cellData.BaseElevation = Mathf.Clamp(selectedTile.BuildablePercent / 100.0f, 0.15f, 1.0f);
+
+					// Guardar las direcciones 3D exactas de las 5 o 6 esquinas de este sector en el planeta
+					Vector3[] worldCorners = new Vector3[selectedTile.BorderVertices.Count];
+					for (int i = 0; i < selectedTile.BorderVertices.Count; i++)
+					{
+						worldCorners[i] = (Transform.Basis * selectedTile.BorderVertices[i]).Normalized();
+					}
+					cellData.CornerDirections = worldCorners;
+
+					if (PlanetGeneratorNode is PlanetGenerator pg)
+					{
+						cellData.SeaLevelOffset = pg.SeaLevelOffset;
+						cellData.ElevationHeight = pg.ElevationHeight;
+					}
+
+					GameManager.Instance.ActiveCell = cellData;
+				}
+
+				GD.Print($"[PlanetGridManager] Entrando al Sector #{_hoveredTileId} ({selectedTile.DominantBiome} - {selectedTile.BuildablePercent}% Edificable)...");
+				GetTree().ChangeSceneToFile("res://Scenes/Local/LocalTile.tscn");
+			}
 		}
 	}
 

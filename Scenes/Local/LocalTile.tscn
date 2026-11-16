@@ -1,11 +1,19 @@
 [gd_scene format=3 uid="uid://igiyc1jnl0ms"]
 
 [ext_resource type="Script" uid="uid://cfcn0n6pu3ftr" path="res://Scripts/World/LocalMapGenerator.cs" id="1_icmk7"]
+[ext_resource type="Script" uid="uid://d3ei2u3bxejj4" path="res://Scripts/Cameras/LocalTacticalCamera.cs" id="2_yvho1"]
 
 [node name="LocalMap" type="Node3D" unique_id=800454797]
 script = ExtResource("1_icmk7")
+Subdivisions = 128
 
-[node name="Camera3D" type="Camera3D" parent="." unique_id=1893029090]
-transform = Transform3D(1, 0, 0, 0, 0.81915206, 0.57357645, 0, -0.57357645, 0.81915206, 0, 120, 180)
+[node name="CameraRig" type="Node3D" parent="." unique_id=476525407]
+script = ExtResource("2_yvho1")
+MaxBoundaryRadius = 1260.0
+MoveSpeed = 750.0
+MinZoomDistance = 220.0
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1484170924]
+[node name="Camera3D" type="Camera3D" parent="CameraRig" unique_id=192591413]
+current = true
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="CameraRig" unique_id=1018361812]
