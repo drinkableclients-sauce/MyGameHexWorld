@@ -1,0 +1,87 @@
+[gd_scene format=3 uid="uid://td8npa1rsc3c"]
+
+[ext_resource type="Script" uid="uid://b6wpbr2t82mno" path="res://Scripts/Core/SeedGenerator.cs" id="1_y55jp"]
+
+[node name="SeedGeneratorMenu" type="Node2D" unique_id=821380244]
+
+[node name="Control" type="Control" parent="." unique_id=964286454 node_paths=PackedStringArray("_worldNameInput", "_seedInput", "_landmassOption", "_difficultyOption", "_startWorldButton", "_backButton")]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 299.0
+offset_top = 129.0
+offset_right = 716.0
+offset_bottom = 434.0
+script = ExtResource("1_y55jp")
+_worldNameInput = NodePath("WorldNameInput")
+_seedInput = NodePath("SeedInput")
+_landmassOption = NodePath("LandmassOption")
+_difficultyOption = NodePath("DifficultyOption")
+_startWorldButton = NodePath("StartWorldBtn")
+_backButton = NodePath("BackBtn")
+
+[node name="StartWorldBtn" type="Button" parent="Control" unique_id=1527180114]
+layout_mode = 0
+offset_left = 159.0
+offset_top = 219.0
+offset_right = 269.0
+offset_bottom = 250.0
+text = "Crear Mundo
+"
+
+[node name="BackBtn" type="Button" parent="Control" unique_id=1488186641]
+layout_mode = 0
+offset_left = 186.0
+offset_top = 256.0
+offset_right = 243.0
+offset_bottom = 287.0
+text = "Volver
+"
+
+[node name="WorldNameInput" type="LineEdit" parent="Control" unique_id=995249050]
+layout_mode = 0
+offset_left = 83.0
+offset_top = 82.0
+offset_right = 359.0
+offset_bottom = 113.0
+placeholder_text = "Nombre del Mundo .."
+alignment = 1
+
+[node name="LandmassOption" type="OptionButton" parent="Control" unique_id=774301482]
+layout_mode = 0
+offset_left = 147.0
+offset_top = 165.0
+offset_right = 276.0
+offset_bottom = 196.0
+item_count = 3
+popup/item_0/text = "Pangea"
+popup/item_0/id = 0
+popup/item_1/text = "Archipelago"
+popup/item_1/id = 1
+popup/item_2/text = "Continental"
+popup/item_2/id = 2
+
+[node name="DifficultyOption" type="OptionButton" parent="Control" unique_id=1366148410]
+layout_mode = 0
+offset_left = 146.0
+offset_top = 121.0
+offset_right = 271.0
+offset_bottom = 152.0
+alignment = 1
+item_count = 4
+popup/item_0/text = "Facil"
+popup/item_0/id = 0
+popup/item_1/text = "Normal"
+popup/item_1/id = 1
+popup/item_2/text = "Dificil"
+popup/item_2/id = 2
+popup/item_3/text = "Hardcore"
+popup/item_3/id = 3
+
+[node name="SeedInput" type="LineEdit" parent="Control" unique_id=1515777942]
+layout_mode = 0
+offset_left = 115.0
+offset_top = 38.0
+offset_right = 318.0
+offset_bottom = 69.0
+placeholder_text = "Introducir Semilla .."
+alignment = 1

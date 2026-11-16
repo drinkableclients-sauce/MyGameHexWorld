@@ -21,15 +21,26 @@ public partial class GameManager : Node
 		}
 		
 		Instance = this;
+		GD.Print("[GameManager] Singleton global cargado en memoria.");
+	}
 
-		if (GenesisSeed == 847291)
-		{
-			GenesisSeed = GenesisSeedEngine.RollDiceSeed();
-		}
-
-		// Asegurar que la configuración por defecto tenga sus modificadores aplicados
+	/// <summary>
+	/// Método único y centralizado para inicializar el mundo con los datos del SeedGenerator.
+	/// </summary>
+	public void SetupNewWorld(int seed, string worldName, WorldLandmassType landmass, WorldDifficulty difficulty)
+	{
+		GenesisSeed = seed;
+		CurrentWorldConfig.WorldName = worldName;
+		CurrentWorldConfig.LandmassType = landmass;
+		CurrentWorldConfig.Difficulty = difficulty;
+		
+		// Aplicar los modificadores correspondientes a la dificultad elegida
 		CurrentWorldConfig.ApplyDifficultyModifiers();
 		
-		GD.Print($"[GameManager] Inicializado. Semilla: {GenesisSeed} | Dificultad: {CurrentWorldConfig.Difficulty} | Continentes: {CurrentWorldConfig.LandmassType}");
+		GD.Print($"[GameManager] ¡Nuevo Mundo Creado!\n" +
+				 $" - Nombre: {worldName}\n" +
+				 $" - Semilla: {GenesisSeed}\n" +
+				 $" - Dificultad: {difficulty}\n" +
+				 $" - Continentes: {landmass}");
 	}
 }

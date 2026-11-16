@@ -4,6 +4,7 @@
 
 [node name="MainMenu" type="Control" unique_id=1503571729]
 layout_mode = 3
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 offset_right = -1.0
@@ -13,10 +14,10 @@ grow_vertical = 2
 
 [node name="VBoxContainer" type="VBoxContainer" parent="." unique_id=2076764477]
 layout_mode = 0
-offset_left = 426.0
-offset_top = 110.0
-offset_right = 775.0
-offset_bottom = 453.0
+offset_left = 400.0
+offset_top = 112.0
+offset_right = 749.0
+offset_bottom = 455.0
 alignment = 1
 script = ExtResource("1_xba41")
 
@@ -25,11 +26,6 @@ layout_mode = 2
 text = "Nuevo Mundo
 
 "
-
-[node name="NameWorld" type="LineEdit" parent="VBoxContainer" unique_id=1152730317]
-layout_mode = 2
-text = "Nombre del Mundo:"
-alignment = 1
 
 [node name="LoadWorld" type="Button" parent="VBoxContainer" unique_id=418420662]
 layout_mode = 2

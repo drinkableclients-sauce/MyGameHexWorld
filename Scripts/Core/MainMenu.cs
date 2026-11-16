@@ -6,7 +6,7 @@ public partial class MainMenu : Control
 
 	public override void _Ready()
 	{
-		// Buscar el botón automáticamente en cualquier nivel de los hijos (evita errores de rutas exactas)
+		// Buscar el botón automáticamente en los hijos
 		_newWorldButton = FindChild("NewWorld", true, false) as Button;
 		
 		if (_newWorldButton != null)
@@ -16,33 +16,21 @@ public partial class MainMenu : Control
 		}
 		else
 		{
-			GD.PrintErr("[MainMenu] ADVERTENCIA: No se encontró ningún nodo llamado 'NewWorld' en la escena. Revisa el nombre del botón en el árbol de nodos.");
+			GD.PrintErr("[MainMenu] ADVERTENCIA: No se encontró ningún nodo llamado 'NewWorld' en la escena.");
 		}
 	}
 
 	private void OnNewWorldBtnPressed()
 	{
-		// 1. Generar semilla segura con el motor de dados
-		int finalSeed = GenesisSeedEngine.RollDiceSeed();
+		GD.Print("[MainMenu] ¡Clic en Nuevo Mundo! Abriendo menú de configuración de partida...");
 
-		// 2. Inyectar en el GameManager global
-		if (GameManager.Instance != null)
-		{
-			GameManager.Instance.GenesisSeed = finalSeed;
-			GameManager.Instance.CurrentWorldConfig.ApplyDifficultyModifiers();
-			GD.Print($"[MainMenu] ¡Clic en Nuevo Mundo! Semilla asignada: {finalSeed}");
-		}
-		else
-		{
-			GD.PrintErr("[MainMenu] ERROR CRÍTICO: GameManager.Instance es null.");
-			return;
-		}
-
-		// 3. Saltar a la escena del Planeta Global
-		Error err = GetTree().ChangeSceneToFile("res://Scenes/Global/Planet.tscn");
+		// CORRECCIÓN DEL FLUJO: Abrir el menú de opciones/seed generator primero
+		// (Asegúrate de que la ruta coincida con la ubicación real de tu escena SeedGenerator.tscn)
+		Error err = GetTree().ChangeSceneToFile("res://Scenes/Global/SeedGeneratorMenu.tscn");
+		
 		if (err != Error.Ok)
 		{
-			GD.PrintErr($"[MainMenu] Error al intentar cambiar a la escena Planet.tscn: {err}");
+			GD.PrintErr($"[MainMenu] Error al intentar abrir SeedGenerator.tscn: {err}");
 		}
 	}
 }

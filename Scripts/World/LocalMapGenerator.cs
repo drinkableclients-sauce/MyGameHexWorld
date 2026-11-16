@@ -1,163 +1,44 @@
 using Godot;
-using Godot.Collections;
 
 public partial class LocalMapGenerator : Node3D
 {
-	private BasalKey _currentDna;
-	private MeshInstance3D _terrainMeshNode;
-	private MeshInstance3D _waterMeshNode;
-	private MultiMeshInstance3D _treesMultiMeshNode;
-	private Node3D _propsContainer;
+	[Export] public float MapRadius { get; set; } = 680.0f; // 1360m de diámetro total
+	[Export] public float TerrainDepth { get; set; } = 150.0f; // Zócalo sólido del diorama
+
+	private MeshInstance3D _terrainMeshInstance;
 
 	public override void _Ready()
 	{
-		EnsureVisualNodes();
+		BasalKey activeCell = GameManager.Instance != null ? GameManager.Instance.ActiveCell : null;
 
-		if (GameManager.Instance != null && GameManager.Instance.ActiveCell != null)
+		if (activeCell == null)
 		{
-			_currentDna = GameManager.Instance.ActiveCell;
-			int tileId = _currentDna.Id;
-
-			GD.Print($"[LocalMapGenerator] Analizando Tile #{tileId} | Bioma: {_currentDna.Biome}");
-
-			// 1. SISTEMA ATK: Verificar si ya existe un Acta de Tile guardada en disco
-			if (TilePersistenceManager.Instance != null && TilePersistenceManager.Instance.TileDataExists(tileId))
-			{
-				GD.Print($"[LocalMapGenerator] Cargando ATK existente para el Tile #{tileId} (Lectura instantánea).");
-				Dictionary savedAtk = TilePersistenceManager.Instance.LoadTileATK(tileId);
-				BuildMapFromATK(savedAtk);
-			}
-			else
-			{
-				GD.Print($"[LocalMapGenerator] Primera visita detectada. Generando génesis local y creando ATK para el Tile #{tileId}...");
-				BuildMapFromDNA(_currentDna);
-
-				// Guardar el snapshot ATK por primera y única vez
-				if (TilePersistenceManager.Instance != null)
-				{
-					Dictionary newAtk = CreateAtkDictionary(_currentDna);
-					TilePersistenceManager.Instance.SaveTileATK(tileId, newAtk);
-				}
-			}
-		}
-		else
-		{
-			GD.PrintErr("[LocalMapGenerator] ADVERTENCIA: No hay celda activa en el GameManager. Generando entorno de prueba por defecto.");
-			BuildDefaultMap();
-		}
-	}
-
-	private void EnsureVisualNodes()
-	{
-		if (_terrainMeshNode == null)
-		{
-			_terrainMeshNode = new MeshInstance3D { Name = "LocalTerrain" };
-			AddChild(_terrainMeshNode);
-		}
-		if (_waterMeshNode == null)
-		{
-			_waterMeshNode = new MeshInstance3D { Name = "LocalWater" };
-			AddChild(_waterMeshNode);
-		}
-		if (_treesMultiMeshNode == null)
-		{
-			_treesMultiMeshNode = new MultiMeshInstance3D { Name = "ForestMultiMesh" };
-			AddChild(_treesMultiMeshNode);
-		}
-		if (_propsContainer == null)
-		{
-			_propsContainer = new Node3D { Name = "PropsContainer" };
-			AddChild(_propsContainer);
-		}
-		else
-		{
-			foreach (Node child in _propsContainer.GetChildren()) child.QueueFree();
-		}
-	}
-
-	/// <summary>
-	/// Genera el diorama por primera vez a partir del ADN puro (BasalKey) y la consulta de vecinos (NFK).
-	/// </summary>
-	private void BuildMapFromDNA(BasalKey dna)
-	{
-		var localRng = new RandomNumberGenerator();
-		localRng.Seed = (ulong)dna.RoughnessSeed;
-
-		float targetElevation = dna.BaseElevation;
-		bool isWaterBody = dna.WaterRatio > 0.4f || dna.Biome.Contains("Océano") || dna.Biome.Contains("Lago");
-
-		// Determinar si es Pentágono (5 aristas) o Hexágono (6 aristas)
-		int vertexCount = (dna.TileVertices != null && dna.TileVertices.Count == 5) ? 5 : 6;
-		float mapRadius = 220.0f; // Escala amplia y táctica
-		float terrainHeightOffset = targetElevation * 10.0f;
-		float blockDepth = 18.0f; // Grosor físico sólido del bloque tipo diorama
-
-		// 1. Construir el prisma poligonal sólido
-		_terrainMeshNode.Mesh = CreateSolidPolygonPrismMesh(vertexCount, mapRadius, blockDepth, dna);
-		_terrainMeshNode.MaterialOverride = GetBiomeMaterial(dna.Biome, targetElevation);
-		_terrainMeshNode.Position = new Vector3(0, terrainHeightOffset, 0);
-
-		// 2. Gestionar agua local si aplica
-		if (isWaterBody)
-		{
-			var waterPlane = new PlaneMesh { Size = new Vector2(mapRadius * 2.2f, mapRadius * 2.2f) };
-			_waterMeshNode.Mesh = waterPlane;
-			_waterMeshNode.MaterialOverride = new StandardMaterial3D
-			{
-				ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-				AlbedoColor = new Color(0.15f, 0.42f, 0.78f, 0.85f),
-				Transparency = BaseMaterial3D.TransparencyEnum.Alpha
-			};
-			_waterMeshNode.Position = new Vector3(0, terrainHeightOffset - 1.2f, 0);
-			_waterMeshNode.Visible = true;
-		}
-		else
-		{
-			_waterMeshNode.Visible = false;
+			GD.PrintErr("[LocalMapGenerator] No hay una celda activa en el GameManager. Usando datos por defecto.");
+			activeCell = new BasalKey();
+			activeCell.Initialize(0, 12345, Vector3.Zero);
 		}
 
-		// 3. Población ecológica estricta (Bosques y Amenazas según bioma)
-		PopulateEcology(vertexCount, mapRadius, terrainHeightOffset, dna, localRng);
-	}
+		GD.Print($"[LocalMapGenerator] Analizando Tile #{activeCell.Id} | Bioma: {activeCell.Biome}");
 
-	/// <summary>
-	/// Reconstruye el mapa instantáneamente leyendo el archivo ATK guardado (Write-Once, Read-Forever).
-	/// </summary>
-	private void BuildMapFromATK(Dictionary atkData)
-	{
-		string biome = atkData.ContainsKey("Biome") ? atkData["Biome"].As<string>() : "Pradera Fértil";
-		float elevation = atkData.ContainsKey("BaseElevation") ? (float)atkData["BaseElevation"] : 0.0f;
-		int vertexCount = atkData.ContainsKey("VertexCount") ? (int)atkData["VertexCount"] : 6;
-		float mapRadius = 220.0f;
-		float terrainHeightOffset = elevation * 10.0f;
-		float blockDepth = 18.0f;
+		// 1. Determinar si es pentágono (5 lados) o hexágono (6 lados) según su ID o vecindad
+		int sides = (activeCell.Id < 12) ? 5 : 6;
 
-		var dummyDna = new BasalKey { RoughnessSeed = 1337, BaseElevation = elevation, Biome = biome };
+		// 2. Generar la malla del diorama de 1360m con micro-triángulos
+		Mesh dioramaMesh = CreateSolidPolygonPrismMesh(sides, MapRadius, TerrainDepth, activeCell);
 
-		_terrainMeshNode.Mesh = CreateSolidPolygonPrismMesh(vertexCount, mapRadius, blockDepth, dummyDna);
-		_terrainMeshNode.MaterialOverride = GetBiomeMaterial(biome, elevation);
-		_terrainMeshNode.Position = new Vector3(0, terrainHeightOffset, 0);
-
-		bool isWater = biome.Contains("Océano") || biome.Contains("Lago");
-		if (isWater)
+		// 3. Crear el MeshInstance3D y añadirlo a la escena para que sea visible
+		_terrainMeshInstance = new MeshInstance3D
 		{
-			var waterPlane = new PlaneMesh { Size = new Vector2(mapRadius * 2.2f, mapRadius * 2.2f) };
-			_waterMeshNode.Mesh = waterPlane;
-			_waterMeshNode.MaterialOverride = new StandardMaterial3D
-			{
-				ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-				AlbedoColor = new Color(0.15f, 0.42f, 0.78f, 0.85f),
-				Transparency = BaseMaterial3D.TransparencyEnum.Alpha
-			};
-			_waterMeshNode.Position = new Vector3(0, terrainHeightOffset - 1.2f, 0);
-			_waterMeshNode.Visible = true;
-		}
-		else
-		{
-			_waterMeshNode.Visible = false;
-		}
+			Name = "LocalTerrainMesh",
+			Mesh = dioramaMesh,
+			MaterialOverride = GetBiomeMaterial(activeCell.Biome)
+		};
+		AddChild(_terrainMeshInstance);
 
-		GD.Print("[LocalMapGenerator] Diorama reconstruido fluidamente desde el ATK en disco.");
+		// 4. Ajustar automáticamente la cámara para encuadrar los 1360 metros del diorama
+		SetupCamera();
+
+		GD.Print($"[LocalMapGenerator] Diorama táctico de {MapRadius * 2.0f}m generado con éxito para el Tile #{activeCell.Id}.");
 	}
 
 	private Mesh CreateSolidPolygonPrismMesh(int sides, float radius, float depth, BasalKey dna)
@@ -167,130 +48,109 @@ public partial class LocalMapGenerator : Node3D
 
 		var noise = new FastNoiseLite();
 		noise.Seed = dna.RoughnessSeed;
-		noise.Frequency = 0.008f;
+		noise.Frequency = 0.0025f; // Frecuencia para detalles de micro-triángulos
 
-		Vector3[] topVertices = new Vector3[sides];
-		Vector3[] bottomVertices = new Vector3[sides];
-		Vector3 centerTop = new Vector3(0, noise.GetNoise2D(0, 0) * 4.0f, 0);
-		Vector3 centerBottom = new Vector3(0, -depth, 0);
+		int subdivisions = 16; // Densidad de la retícula de micro-triángulos
 
+		// Construir tapa superior con relieve procedural por FastNoiseLite
+		for (int ring = 0; ring < subdivisions; ring++)
+		{
+			float r1 = (float)ring / subdivisions;
+			float r2 = (float)(ring + 1) / subdivisions;
+
+			int radialSegments = sides * (ring + 1);
+
+			for (int i = 0; i < radialSegments; i++)
+			{
+				float angle1 = i * Mathf.Tau / radialSegments;
+				float angle2 = ((i + 1) % radialSegments) * Mathf.Tau / radialSegments;
+
+				Vector3 p1 = new Vector3(Mathf.Cos(angle1) * r1 * radius, 0, Mathf.Sin(angle1) * r1 * radius);
+				Vector3 p2 = new Vector3(Mathf.Cos(angle2) * r1 * radius, 0, Mathf.Sin(angle2) * r1 * radius);
+				Vector3 p3 = new Vector3(Mathf.Cos(angle1) * r2 * radius, 0, Mathf.Sin(angle1) * r2 * radius);
+				Vector3 p4 = new Vector3(Mathf.Cos(angle2) * r2 * radius, 0, Mathf.Sin(angle2) * r2 * radius);
+
+				// Elevar vértices según elevación y ruido
+				p1.Y = noise.GetNoise2D(p1.X, p1.Z) * 60.0f * dna.BaseElevation;
+				p2.Y = noise.GetNoise2D(p2.X, p2.Z) * 60.0f * dna.BaseElevation;
+				p3.Y = noise.GetNoise2D(p3.X, p3.Z) * 60.0f * dna.BaseElevation;
+				p4.Y = noise.GetNoise2D(p4.X, p4.Z) * 60.0f * dna.BaseElevation;
+
+				// Triángulo A
+				st.SetNormal(Vector3.Up);
+				st.AddVertex(p1);
+				st.AddVertex(p3);
+				st.AddVertex(p2);
+
+				// Triángulo B
+				st.SetNormal(Vector3.Up);
+				st.AddVertex(p2);
+				st.AddVertex(p3);
+				st.AddVertex(p4);
+			}
+		}
+
+		// Zócalo lateral sólido del diorama
+		Vector3[] topPerimeter = new Vector3[sides];
+		Vector3[] bottomPerimeter = new Vector3[sides];
 		for (int i = 0; i < sides; i++)
 		{
 			float angle = i * Mathf.Tau / sides;
 			float x = Mathf.Cos(angle) * radius;
 			float z = Mathf.Sin(angle) * radius;
-			float yTop = noise.GetNoise2D(x, z) * 5.0f;
+			float yTop = noise.GetNoise2D(x, z) * 60.0f * dna.BaseElevation;
 
-			topVertices[i] = new Vector3(x, yTop, z);
-			bottomVertices[i] = new Vector3(x, -depth, z);
+			topPerimeter[i] = new Vector3(x, yTop, z);
+			bottomPerimeter[i] = new Vector3(x, -depth, z);
 		}
 
-		// Tapa superior del diorama
 		for (int i = 0; i < sides; i++)
 		{
 			int next = (i + 1) % sides;
-			st.SetNormal(Vector3.Up);
-			st.AddVertex(centerTop);
-			st.AddVertex(topVertices[i]);
-			st.AddVertex(topVertices[next]);
-		}
-
-		// Paredes laterales sólidas del zócalo
-		for (int i = 0; i < sides; i++)
-		{
-			int next = (i + 1) % sides;
-			Vector3 p1 = topVertices[i];
-			Vector3 p2 = topVertices[next];
-			Vector3 b1 = bottomVertices[i];
-			Vector3 b2 = bottomVertices[next];
+			Vector3 p1 = topPerimeter[i];
+			Vector3 p2 = topPerimeter[next];
+			Vector3 b1 = bottomPerimeter[i];
+			Vector3 b2 = bottomPerimeter[next];
 
 			Vector3 sideNormal = (p2 - p1).Cross(b1 - p1).Normalized();
 
 			st.SetNormal(sideNormal);
-			st.AddVertex(p1);
-			st.AddVertex(b1);
-			st.AddVertex(p2);
-
+			st.AddVertex(p1); st.AddVertex(b1); st.AddVertex(p2);
 			st.SetNormal(sideNormal);
-			st.AddVertex(p2);
-			st.AddVertex(b1);
-			st.AddVertex(b2);
+			st.AddVertex(p2); st.AddVertex(b1); st.AddVertex(b2);
 		}
 
 		return st.Commit();
 	}
 
-	private StandardMaterial3D GetBiomeMaterial(string biome, float elevation)
+	private StandardMaterial3D GetBiomeMaterial(string biome)
 	{
 		var mat = new StandardMaterial3D { ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded };
 
-		if (biome.Contains("Océano") || biome.Contains("Costa"))
-			mat.AlbedoColor = new Color(0.75f, 0.68f, 0.48f); // Arena de costa
-		else if (biome.Contains("Polar") || biome.Contains("Tundra"))
-			mat.AlbedoColor = new Color(0.88f, 0.88f, 0.92f); // Nieve / hielo
-		else if (elevation > 0.7f)
-			mat.AlbedoColor = new Color(0.52f, 0.52f, 0.58f); // Roca alpina
+		if (biome.Contains("Océano") || biome.Contains("Oceano"))
+			mat.AlbedoColor = new Color(0.15f, 0.35f, 0.55f);
+		else if (biome.Contains("Polar") || biome.Contains("Tundra") || biome.Contains("Helada"))
+			mat.AlbedoColor = new Color(0.90f, 0.92f, 0.96f);
+		else if (biome.Contains("Montaña") || biome.Contains("Montana"))
+			mat.AlbedoColor = new Color(0.50f, 0.50f, 0.55f);
 		else if (biome.Contains("Desierto"))
-			mat.AlbedoColor = new Color(0.85f, 0.75f, 0.45f); // Desértico
+			mat.AlbedoColor = new Color(0.85f, 0.72f, 0.45f);
+		else if (biome.Contains("Bosque"))
+			mat.AlbedoColor = new Color(0.20f, 0.48f, 0.30f);
 		else
-			mat.AlbedoColor = new Color(0.25f, 0.60f, 0.30f); // Verde pradera medieval
+			mat.AlbedoColor = new Color(0.30f, 0.65f, 0.38f); // Pradera Fértil
 
 		return mat;
 	}
 
-	private void PopulateEcology(int sides, float radius, float baseHeight, BasalKey dna, RandomNumberGenerator rng)
+	private void SetupCamera()
 	{
-		if (dna.Biome.Contains("Desierto") || dna.Biome.Contains("Polar") || dna.Biome.Contains("Océano"))
-			return; // Respeto estricto biológico: sin bosques en los polos o desiertos
-
-		int treeCount = 45;
-		var multiMesh = new MultiMesh
+		Camera3D camera = GetNodeOrNull<Camera3D>("Camera3D");
+		if (camera != null)
 		{
-			TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
-			InstanceCount = treeCount,
-			Mesh = new SphereMesh { Radius = 2.5f, Height = 5.0f }
-		};
-
-		for (int i = 0; i < treeCount; i++)
-		{
-			float dist = rng.RandfRange(20.0f, radius * 0.8f);
-			float angle = rng.RandfRange(0, Mathf.Tau);
-			float x = Mathf.Cos(angle) * dist;
-			float z = Mathf.Sin(angle) * dist;
-
-			Transform3D t = new Transform3D();
-			float scaleVar = rng.RandfRange(0.6f, 1.4f);
-			t = t.ScaledLocal(new Vector3(scaleVar, scaleVar, scaleVar));
-			t.Origin = new Vector3(x, baseHeight + 2.0f, z);
-
-			multiMesh.SetInstanceTransform(i, t);
-		}
-		_treesMultiMeshNode.Multimesh = multiMesh;
-	}
-
-	private Dictionary CreateAtkDictionary(BasalKey dna)
-	{
-		var atk = new Dictionary();
-		atk["Id"] = dna.Id;
-		atk["Biome"] = dna.Biome;
-		atk["BaseElevation"] = dna.BaseElevation;
-		atk["VertexCount"] = (dna.TileVertices != null && dna.TileVertices.Count == 5) ? 5 : 6;
-		atk["IsExplored"] = true;
-		return atk;
-	}
-
-	private void BuildDefaultMap()
-	{
-		_terrainMeshNode.Mesh = CreateSolidPolygonPrismMesh(6, 220.0f, 18.0f, new BasalKey { RoughnessSeed = 123 });
-		_terrainMeshNode.MaterialOverride = new StandardMaterial3D { ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded, AlbedoColor = new Color(0.25f, 0.60f, 0.30f) };
-		_waterMeshNode.Visible = false;
-	}
-
-	public override void _Input(InputEvent @event)
-	{
-		if (@event is InputEventKey keyEvent && keyEvent.Pressed && keyEvent.Keycode == Key.Escape)
-		{
-			GetTree().ChangeSceneToFile("res://Scenes/Global/Planet.tscn");
+			// Posicionar la cámara a una altura adecuada para ver los 1360m de diámetro
+			camera.Position = new Vector3(0, 900.0f, 900.0f);
+			camera.LookAt(Vector3.Zero, Vector3.Up);
 		}
 	}
 }

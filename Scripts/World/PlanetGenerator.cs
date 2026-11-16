@@ -1,152 +1,252 @@
 using Godot;
-using Godot.Collections;
+using System.Collections.Generic;
 
+[Tool]
 public partial class PlanetGenerator : Node3D
 {
-	[Export] public float PlanetRadius { get; set; } = 10.0f;
-	[Export] public int SubdivisionLevel { get; set; } = 2;
+	private float _planetRadius = 32.0f;
+	[Export]
+	public float PlanetRadius
+	{
+		get => _planetRadius;
+		set { _planetRadius = value; if (IsInsideTree()) GenerateRealisticPlanet(); }
+	}
 
-	public Dictionary<int, BasalKey> PlanetCells { get; private set; } = new Dictionary<int, BasalKey>();
-	private Dictionary<int, Vector3> _cellPositions = new Dictionary<int, Vector3>();
+	private int _planetDetail = 64;
+	[Export]
+	public int PlanetDetail
+	{
+		get => _planetDetail;
+		set { _planetDetail = Mathf.Max(16, value); if (IsInsideTree()) GenerateRealisticPlanet(); }
+	}
+
+	private float _elevationHeight = 1.0f;
+	[Export]
+	public float ElevationHeight
+	{
+		get => _elevationHeight;
+		set { _elevationHeight = value; if (IsInsideTree()) GenerateRealisticPlanet(); }
+	}
+
+	private float _seaLevelOffset = 0.15f;
+	[Export(PropertyHint.Range, "0.0,1.0")]
+	public float SeaLevelOffset
+	{
+		get => _seaLevelOffset;
+		set { _seaLevelOffset = value; if (IsInsideTree()) GenerateRealisticPlanet(); }
+	}
+
+	private MeshInstance3D _planetMeshInstance;
+	private MeshInstance3D _waterMeshInstance;
+
+	// Datos geofísicos compartidos para consulta de celdas
+	private FastNoiseLite _detailNoise;
+	private FastNoiseLite _climateNoise;
+	private List<Vector3> _tectonicCenters = new List<Vector3>();
+	private WorldLandmassType _currentLandmassType = WorldLandmassType.Continental;
+
+	public float AbsoluteSeaLevel => _planetRadius + (_elevationHeight * _seaLevelOffset);
 
 	public override void _Ready()
 	{
-		GeneratePlanet();
+		GenerateRealisticPlanet();
 	}
 
-	private void GeneratePlanet()
+	private void InitializeGeophysics()
 	{
-		int genesisSeed = GameManager.Instance != null ? GameManager.Instance.GenesisSeed : 12345;
+		int genesisSeed = GameManager.Instance != null ? GameManager.Instance.GenesisSeed : 1337;
 		var worldConfig = GameManager.Instance != null ? GameManager.Instance.CurrentWorldConfig : new WorldConfig();
-
-		GD.Print($"[PlanetGenerator] Generando planeta | Semilla: {genesisSeed} | Continentes: {worldConfig.LandmassType} | Dificultad: {worldConfig.Difficulty}");
+		_currentLandmassType = worldConfig.LandmassType;
 
 		var rng = new RandomNumberGenerator();
 		rng.Seed = (ulong)genesisSeed;
 
-		int totalCellsCount = 42;
-		Vector3 pangeaCenter = new Vector3(rng.RandfRange(-1, 1), rng.RandfRange(-0.5f, 0.5f), rng.RandfRange(-1, 1)).Normalized();
+		_detailNoise = new FastNoiseLite();
+		_detailNoise.Seed = genesisSeed + 99;
+		_detailNoise.NoiseType = FastNoiseLite.NoiseTypeEnum.Simplex;
+		_detailNoise.FractalType = FastNoiseLite.FractalTypeEnum.Ridged;
+		_detailNoise.Frequency = 1.8f;
 
-		PlanetCells.Clear();
-		_cellPositions.Clear();
+		_climateNoise = new FastNoiseLite();
+		_climateNoise.Seed = genesisSeed + 777;
+		_climateNoise.NoiseType = FastNoiseLite.NoiseTypeEnum.Simplex;
+		_climateNoise.Frequency = 0.5f;
 
-		for (int i = 0; i < totalCellsCount; i++)
+		_tectonicCenters.Clear();
+
+		if (_currentLandmassType == WorldLandmassType.Pangea)
 		{
-			float phi = Mathf.Acos(1.0f - (2.0f * i + 1.0f) / totalCellsCount);
-			float theta = Mathf.Sqrt(totalCellsCount * Mathf.Pi) * phi;
-
-			Vector3 cellPosition = new Vector3(
-				PlanetRadius * Mathf.Sin(phi) * Mathf.Cos(theta),
-				PlanetRadius * Mathf.Cos(phi),
-				PlanetRadius * Mathf.Sin(phi) * Mathf.Sin(theta)
-			);
-
-			if (worldConfig.LandmassType == WorldLandmassType.Pangea)
-			{
-				Vector3 normalizedPos = cellPosition.Normalized();
-				normalizedPos = normalizedPos.Slerp(pangeaCenter, 0.35f);
-				cellPosition = normalizedPos * PlanetRadius;
-			}
-			else if (worldConfig.LandmassType == WorldLandmassType.Archipiélago)
-			{
-				cellPosition += new Vector3(rng.RandfRange(-1.5f, 1.5f), rng.RandfRange(-1.5f, 1.5f), rng.RandfRange(-1.5f, 1.5f));
-				cellPosition = cellPosition.Normalized() * PlanetRadius;
-			}
-
-			// Guardar posición local de la celda
-			_cellPositions[i] = cellPosition;
-
-			// Crear y poblar el ADN de la celda (BasalKey)
-			BasalKey cellKey = new BasalKey();
-			cellKey.Initialize(i, genesisSeed, cellPosition);
-
-			PlanetCells.Add(i, cellKey);
-			// --- REPRESENTACIÓN VISUAL RÁPIDA EN LA ESFERA ---
-			var cellVisual = new MeshInstance3D();
-			cellVisual.Mesh = new SphereMesh { Radius = 0.8f, Height = 1.6f };
-			cellVisual.Position = cellPosition;
-
-			// Color temporal según si es agua o tierra firme para distinguirlas a simple vista
-			var mat = new StandardMaterial3D();
-			mat.ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded;
-			mat.AlbedoColor = cellKey.Biome.Contains("Océano") ? new Color(0.2f, 0.4f, 0.8f) : new Color(0.3f, 0.7f, 0.3f);
-			cellVisual.MaterialOverride = mat;
-
-			AddChild(cellVisual);
-			// ------------------------------------------------
+			_tectonicCenters.Add(new Vector3(rng.RandfRange(-1, 1), rng.RandfRange(-0.5f, 0.5f), rng.RandfRange(-1, 1)).Normalized());
 		}
-
-		GD.Print($"[PlanetGenerator] ¡Planeta esculpido con éxito! Total de celdas interactivas: {PlanetCells.Count}");
-	}
-
-	public override void _Input(InputEvent @event)
-	{
-		// Detectar clic izquierdo del mouse para seleccionar una celda del planeta
-		if (@event is InputEventMouseButton mouseEvent && mouseEvent.Pressed && mouseEvent.ButtonIndex == MouseButton.Left)
+		else if (_currentLandmassType == WorldLandmassType.Continental)
 		{
-			Camera3D camera = GetViewport().GetCamera3D();
-			if (camera == null) return;
-
-			Vector2 mousePos = mouseEvent.Position;
-			Vector3 rayOrigin = camera.ProjectRayOrigin(mousePos);
-			Vector3 rayDir = camera.ProjectRayNormal(mousePos);
-
-			// Intersección con la esfera del planeta
-			Vector3 sphereCenter = GlobalPosition;
-			Vector3 m = rayOrigin - sphereCenter;
-			float b = m.Dot(rayDir);
-			float c = m.Dot(m) - (PlanetRadius * PlanetRadius);
-
-			if (c > 0.0f && b > 0.0f) return;
-			float discriminant = b * b - c;
-			if (discriminant < 0.0f) return;
-
-			float t = -b - Mathf.Sqrt(discriminant);
-			if (t < 0.0f) t = 0.0f;
-
-			Vector3 hitPoint = rayOrigin + rayDir * t;
-
-			// Encontrar la celda más cercana al punto de impacto del rayo
-			int closestCellId = -1;
-			float minDistance = float.MaxValue;
-
-			foreach (var kvp in _cellPositions)
+			// Default: mínimo 2 y máximo 5 continentes separados
+			int continentCount = rng.RandiRange(2, 5);
+			for (int c = 0; c < continentCount; c++)
 			{
-				float dist = kvp.Value.DistanceTo(hitPoint);
-				if (dist < minDistance)
+				Vector3 candidate;
+				int attempts = 0;
+				do
 				{
-					minDistance = dist;
-					closestCellId = kvp.Key;
+					candidate = new Vector3(
+						rng.RandfRange(-1f, 1f),
+						rng.RandfRange(-0.65f, 0.65f),
+						rng.RandfRange(-1f, 1f)
+					).Normalized();
+					attempts++;
 				}
+				while (_tectonicCenters.Exists(existing => existing.Dot(candidate) > 0.25f) && attempts < 30);
+
+				_tectonicCenters.Add(candidate);
 			}
-
-			// Si encontramos una celda válida y está a una distancia razonable del impacto
-			if (closestCellId != -1 && minDistance < 5.0f)
+		}
+		else // Archipiélago / Islas (sin depender del nombre del enum)
+		{
+			for (int c = 0; c < 8; c++)
 			{
-				BasalKey selectedCell = GetCellData(closestCellId);
-				if (selectedCell != null)
-				{
-					GD.Print($"[PlanetGenerator] ¡Celda #{selectedCell.Id} seleccionada! Bioma: {selectedCell.Biome}. Saltando al diorama local...");
-					
-					// Asignar al GameManager global
-					if (GameManager.Instance != null)
-					{
-						GameManager.Instance.ActiveCell = selectedCell;
-					}
-
-					// Transicionar a la escena del Diorama Local
-					GetTree().ChangeSceneToFile("res://Scenes/Local/LocalTile.tscn");
-				}
+				_tectonicCenters.Add(new Vector3(rng.RandfRange(-1, 1), rng.RandfRange(-1, 1), rng.RandfRange(-1, 1)).Normalized());
 			}
 		}
 	}
 
-	public BasalKey GetCellData(int cellId)
+	public float SampleElevationAt(Vector3 normDir)
 	{
-		if (PlanetCells.ContainsKey(cellId))
+		if (_detailNoise == null || _tectonicCenters.Count == 0)
+			InitializeGeophysics();
+
+		float structuralFactor = 0.0f;
+
+		if (_currentLandmassType == WorldLandmassType.Pangea)
 		{
-			return PlanetCells[cellId];
+			float dist = normDir.DistanceTo(_tectonicCenters[0]);
+			structuralFactor = Mathf.Clamp(1.0f - (dist / 1.8f), 0.0f, 1.0f);
+			structuralFactor = Mathf.Pow(structuralFactor, 0.7f);
 		}
-		return null;
+		else if (_currentLandmassType == WorldLandmassType.Continental)
+		{
+			float maxInfluence = 0.0f;
+			foreach (var center in _tectonicCenters)
+			{
+				float dist = normDir.DistanceTo(center);
+				float influence = Mathf.Clamp(1.0f - (dist / 0.95f), 0.0f, 1.0f);
+				if (influence > maxInfluence) maxInfluence = influence;
+			}
+			structuralFactor = Mathf.Pow(maxInfluence, 0.85f);
+		}
+		else // Archipiélago / Islas
+		{
+			float maxInfluence = 0.0f;
+			foreach (var center in _tectonicCenters)
+			{
+				float dist = normDir.DistanceTo(center);
+				float influence = Mathf.Clamp(1.0f - (dist / 0.6f), 0.0f, 1.0f);
+				if (influence > maxInfluence) maxInfluence = influence;
+			}
+			structuralFactor = Mathf.Pow(maxInfluence, 1.5f);
+		}
+
+		float noiseVal = _detailNoise.GetNoise3D(normDir.X * 40.0f, normDir.Y * 40.0f, normDir.Z * 40.0f);
+		float finalContinentScore = structuralFactor + (noiseVal * 0.16f);
+
+		if (finalContinentScore > 0.35f)
+		{
+			float landHeight = (finalContinentScore - 0.35f) / 0.65f;
+			float mountainRidge = 1.0f - Mathf.Abs(_detailNoise.GetNoise3D(normDir.X * 80.0f, normDir.Y * 80.0f, normDir.Z * 80.0f));
+			return (landHeight * 0.5f + Mathf.Pow(mountainRidge, 1.5f) * 0.5f) * _elevationHeight;
+		}
+
+		return -0.15f * _elevationHeight;
+	}
+
+	private void GenerateRealisticPlanet()
+	{
+		if (_planetMeshInstance != null) { _planetMeshInstance.QueueFree(); _planetMeshInstance = null; }
+		if (_waterMeshInstance != null) { _waterMeshInstance.QueueFree(); _waterMeshInstance = null; }
+
+		InitializeGeophysics();
+
+		var sphereMesh = new SphereMesh();
+		sphereMesh.Radius = _planetRadius;
+		sphereMesh.Height = _planetRadius * 2.0f;
+		sphereMesh.RadialSegments = _planetDetail * 2;
+		sphereMesh.Rings = _planetDetail;
+
+		var meshArrays = sphereMesh.GetMeshArrays();
+		var vertices = (Vector3[])meshArrays[(int)Mesh.ArrayType.Vertex];
+		var colors = new Color[vertices.Length];
+		float absoluteSeaLevel = AbsoluteSeaLevel;
+
+		for (int i = 0; i < vertices.Length; i++)
+		{
+			Vector3 normDir = vertices[i].Normalized();
+			float finalElevation = SampleElevationAt(normDir);
+			float currentRadius = _planetRadius + finalElevation;
+			vertices[i] = normDir * currentRadius;
+
+			float latitude = Mathf.Abs(normDir.Y);
+			float moisture = (_climateNoise.GetNoise3D(normDir.X * 35.0f, normDir.Y * 35.0f, normDir.Z * 35.0f) + 1.0f) * 0.5f;
+			float altitudeRatio = finalElevation / _elevationHeight;
+
+			if (currentRadius < absoluteSeaLevel)
+			{
+				colors[i] = new Color(0.10f, 0.28f, 0.52f); // Océano
+			}
+			else if (altitudeRatio > 0.65f || latitude > 0.82f)
+			{
+				colors[i] = new Color(0.92f, 0.95f, 0.98f); // Cumbres nevadas / Polos
+			}
+			else if (altitudeRatio > 0.45f)
+			{
+				colors[i] = new Color(0.48f, 0.49f, 0.53f); // Montañas rocosas
+			}
+			else
+			{
+				bool isSubtropicalDesert = (latitude > 0.28f && latitude < 0.48f && moisture < 0.40f);
+				bool isTropicalRainforest = (latitude <= 0.25f && moisture > 0.55f);
+
+				if (isSubtropicalDesert)
+					colors[i] = new Color(0.84f, 0.72f, 0.48f); // Desierto cálido
+				else if (isTropicalRainforest)
+					colors[i] = new Color(0.18f, 0.42f, 0.22f); // Selva tropical
+				else if (latitude > 0.65f)
+					colors[i] = new Color(0.45f, 0.55f, 0.45f); // Tundra / Taiga
+				else if (moisture < 0.35f)
+					colors[i] = new Color(0.65f, 0.62f, 0.38f); // Sabana / Estepa
+				else
+					colors[i] = new Color(0.28f, 0.58f, 0.34f); // Pradera templada
+			}
+		}
+
+		meshArrays[(int)Mesh.ArrayType.Vertex] = vertices;
+		meshArrays[(int)Mesh.ArrayType.Color] = colors;
+
+		var finalArrayMesh = new ArrayMesh();
+		finalArrayMesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, meshArrays);
+
+		var terrainMaterial = new StandardMaterial3D();
+		terrainMaterial.ShadingMode = BaseMaterial3D.ShadingModeEnum.PerVertex;
+		terrainMaterial.VertexColorUseAsAlbedo = true;
+		terrainMaterial.Roughness = 0.7f;
+
+		_planetMeshInstance = new MeshInstance3D();
+		_planetMeshInstance.Mesh = finalArrayMesh;
+		_planetMeshInstance.MaterialOverride = terrainMaterial;
+		AddChild(_planetMeshInstance);
+
+		var waterSphere = new SphereMesh();
+		waterSphere.Radius = absoluteSeaLevel;
+		waterSphere.Height = absoluteSeaLevel * 2.0f;
+		waterSphere.RadialSegments = 32;
+		waterSphere.Rings = 16;
+
+		var waterMaterial = new StandardMaterial3D();
+		waterMaterial.ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded;
+		waterMaterial.AlbedoColor = new Color(0.08f, 0.25f, 0.52f, 0.85f);
+		waterMaterial.Transparency = BaseMaterial3D.TransparencyEnum.Alpha;
+
+		_waterMeshInstance = new MeshInstance3D();
+		_waterMeshInstance.Mesh = waterSphere;
+		_waterMeshInstance.MaterialOverride = waterMaterial;
+		AddChild(_waterMeshInstance);
 	}
 }

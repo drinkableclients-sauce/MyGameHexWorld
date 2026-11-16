@@ -18,6 +18,7 @@ public enum WorldDifficulty
 [GlobalClass]
 public partial class WorldConfig : Resource
 {
+	[Export] public string WorldName { get; set; } = "Mundo de los Pioneros";
 	[Export] public WorldLandmassType LandmassType { get; set; } = WorldLandmassType.Continental;
 	[Export] public WorldDifficulty Difficulty { get; set; } = WorldDifficulty.Normal;
 	[Export] public float ResourceAbundanceMultiplier { get; set; } = 1.0f;

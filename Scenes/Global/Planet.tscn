@@ -1,11 +1,63 @@
 [gd_scene format=3 uid="uid://cswcrxive87ml"]
 
 [ext_resource type="Script" uid="uid://ciftr4rmokg4g" path="res://Scripts/World/PlanetGenerator.cs" id="1_x4qvl"]
+[ext_resource type="Script" uid="uid://brxmwd504y8j7" path="res://Scripts/Cameras/PlanetCamera.cs" id="2_bp8ve"]
+[ext_resource type="Script" uid="uid://dpc28vv3178cy" path="res://Scripts/World/SpaceEnvironmentManager.cs" id="3_phd0f"]
+[ext_resource type="Shader" uid="uid://cw201xhkhl2o2" path="res://Shadders/PixelArtPostProcess.gdshader" id="4_pwf6b"]
+[ext_resource type="Script" uid="uid://bpe72l16crekj" path="res://Scripts/World/PlanetGridManager.cs" id="5_3pl1j"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_3pl1j"]
+shader = ExtResource("4_pwf6b")
+shader_parameter/pixel_size = 3.0
+shader_parameter/color_levels = 24.0
+shader_parameter/saturation = 1.25
+shader_parameter/noise_amount = 0.015
 
 [node name="PlanetWorld" type="Node3D" unique_id=595751524]
 script = ExtResource("1_x4qvl")
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=2045541058]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 25)
+script = ExtResource("2_bp8ve")
+MinZoom = 34.0
+MaxZoom = 90.0
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=758692123]
+
+[node name="Sun" type="Node3D" parent="." unique_id=912466790 node_paths=PackedStringArray("SunLight", "PlanetNode")]
+script = ExtResource("3_phd0f")
+SunLight = NodePath("../DirectionalLight3D")
+PlanetNode = NodePath(".")
+SunIntensity = 1.075
+AtmosphereIntensity = 0.601
+OrbitSpeed = 0.025
+
+[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=852363157]
+
+[node name="ColorRect" type="ColorRect" parent="CanvasLayer" unique_id=1985889398]
+material = SubResource("ShaderMaterial_3pl1j")
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="GridTIles" type="Node3D" parent="." unique_id=43639938 node_paths=PackedStringArray("PlanetGeneratorNode", "GameCamera", "TooltipLabel")]
+script = ExtResource("5_3pl1j")
+PlanetGeneratorNode = NodePath("..")
+GameCamera = NodePath("../Camera3D")
+TooltipLabel = NodePath("../Label/TooltipLabel")
+
+[node name="Label" type="CanvasLayer" parent="." unique_id=463990493]
+
+[node name="TooltipLabel" type="Label" parent="Label" unique_id=668289359]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -20.0
+offset_top = -23.0
+offset_right = 20.0
+grow_horizontal = 2
+grow_vertical = 0

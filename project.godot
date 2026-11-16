@@ -19,6 +19,11 @@ config/icon="res://icon.svg"
 
 GameManager="*uid://dsf4it77yudtx"
 
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+
 [dotnet]
 
 project/assembly_name="MyGameHexWorld"

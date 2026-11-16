@@ -12,6 +12,7 @@ public partial class BasalKey : RefCounted
 	public float BuildableArea { get; set; }
 	public int ThreatLevel { get; set; }
 	public string Biome { get; set; } = "Desconocido";
+	public Array<int> NeighborIds { get; set; } = new Array<int>();
 	
 	// Propiedad que el LocalMapGenerator estaba buscando
 	public Array<Vector3> TileVertices { get; set; } = new Array<Vector3>();
