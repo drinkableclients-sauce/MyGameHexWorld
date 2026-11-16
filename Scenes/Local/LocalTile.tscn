@@ -2,18 +2,61 @@
 
 [ext_resource type="Script" uid="uid://cfcn0n6pu3ftr" path="res://Scripts/World/LocalMapGenerator.cs" id="1_icmk7"]
 [ext_resource type="Script" uid="uid://d3ei2u3bxejj4" path="res://Scripts/Cameras/LocalTacticalCamera.cs" id="2_yvho1"]
+[ext_resource type="Script" uid="uid://tm4m60od816b" path="res://Scripts/UI/LocalHUD.cs" id="3_5tbrs"]
+[ext_resource type="Script" uid="uid://x2fhru2lenda" path="res://Scripts/World/LocalTileSelector.cs" id="3_qcnrr"]
+[ext_resource type="Shader" uid="uid://cw201xhkhl2o2" path="res://Shadders/PixelArtPostProcess.gdshader" id="5_pjg7h"]
+[ext_resource type="Script" uid="uid://cmh0hfmsanlrd" path="res://Scripts/World/LocalResourceSpawner.cs" id="6_irqms"]
+[ext_resource type="Script" uid="uid://bjsl6irvnt5i5" path="res://Scripts/Systems/LocalSettlementController.cs" id="7_6o7vt"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_irqms"]
+shader = ExtResource("5_pjg7h")
+shader_parameter/pixel_size = 2.0
+shader_parameter/color_levels = 24.0
+shader_parameter/saturation = 1.25
+shader_parameter/noise_amount = 0.015
 
 [node name="LocalMap" type="Node3D" unique_id=800454797]
 script = ExtResource("1_icmk7")
-Subdivisions = 128
+MapRadius = 2200.0
+Subdivisions = 164
 
 [node name="CameraRig" type="Node3D" parent="." unique_id=476525407]
 script = ExtResource("2_yvho1")
 MaxBoundaryRadius = 1260.0
 MoveSpeed = 750.0
-MinZoomDistance = 220.0
+MinZoomDistance = 190.0
 
 [node name="Camera3D" type="Camera3D" parent="CameraRig" unique_id=192591413]
 current = true
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="CameraRig" unique_id=1018361812]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -48, 38, 0)
+light_color = Color(1, 0.9647059, 0.8980392, 1)
+light_energy = 1.65
+shadow_enabled = true
+
+[node name="TileSelector" type="Node3D" parent="." unique_id=1960253824]
+script = ExtResource("3_qcnrr")
+
+[node name="LocalHUD" type="CanvasLayer" parent="." unique_id=1564644366]
+layer = 2
+script = ExtResource("3_5tbrs")
+
+[node name="PostProcessLayer" type="CanvasLayer" parent="." unique_id=1551051323]
+layer = 0
+
+[node name="ColorRect" type="ColorRect" parent="PostProcessLayer" unique_id=2067876722]
+material = SubResource("ShaderMaterial_irqms")
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="ResourceSpawner" type="Node3D" parent="." unique_id=1317229604]
+script = ExtResource("6_irqms")
+MineralDensity = 0.19
+
+[node name="SettlementController" type="Node3D" parent="." unique_id=713467182]
+script = ExtResource("7_6o7vt")

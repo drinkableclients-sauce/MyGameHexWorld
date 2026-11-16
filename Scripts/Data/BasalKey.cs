@@ -45,44 +45,39 @@ public partial class BasalKey : RefCounted
 	public Array<string> ConstructedBuildings { get; private set; } = new Array<string>();
 	public Array<string> UnlockedTechnologies { get; private set; } = new Array<string>();
 
-	public void Initialize(int id, int genesisSeed, Vector3 sphericalPosition)
+	public void Initialize(int id, int genesisSeed, Vector3 originCoords)
 	{
 		Id = id;
-		SphericalPosition = sphericalPosition;
-		OriginCoordinates = sphericalPosition;
-		
-		var rng = new RandomNumberGenerator();
-		rng.Seed = (ulong)(genesisSeed + (id * 73856093) ^ (int)(sphericalPosition.X * 1000));
-		
-		var worldConfig = GameManager.Instance != null ? GameManager.Instance.CurrentWorldConfig : new WorldConfig();
+		OriginCoordinates = originCoords;
 
-		float landmassBias = 0.0f;
-		if (worldConfig.LandmassType == WorldLandmassType.Pangea) landmassBias = 0.40f;
-		else if (worldConfig.LandmassType == WorldLandmassType.Archipiélago) landmassBias = -0.35f;
-
-		RoughnessSeed = (int)rng.RandiRange(1000, 999999);
-		
-		float rawElevation = rng.RandfRange(-0.6f, 1.0f);
-		BaseElevation = (rawElevation + landmassBias) * worldConfig.MountainFrequency;
-		BaseElevation = Mathf.Clamp(BaseElevation, -0.9f, 1.2f);
-
-		WaterRatio = BaseElevation < 0.0f ? rng.RandfRange(0.5f, 0.95f) : rng.RandfRange(0.0f, 0.25f);
-		if (worldConfig.LandmassType == WorldLandmassType.Archipiélago) WaterRatio *= 1.3f;
-
-		BuildableArea = Mathf.Clamp(1.0f - Mathf.Abs(BaseElevation), 0.1f, 1.0f);
-		ThreatLevel = (int)((rng.Randf() * 4.0f) * (worldConfig.ResourceAbundanceMultiplier < 1.0f ? 1.5f : 1.0f));
-
-		float latitude = Mathf.Abs(sphericalPosition.Normalized().Y);
-		if (BaseElevation < -0.3f) Biome = latitude > 0.75f ? "Océano Polar" : "Océano Profundo";
-		else if (BaseElevation < 0.0f) Biome = latitude > 0.75f ? "Costa Helada" : "Costa / Ribera";
-		else if (latitude > 0.8f) Biome = "Casquete Polar / Tundra";
-		else if (latitude > 0.5f) Biome = BaseElevation > 0.5f ? "Montaña Alpina" : "Bosque Frío / Taiga";
-		else
+		LocalInventory = new Dictionary<string, int>
 		{
-			if (WaterRatio > 0.5f) Biome = "Lago Interior / Humedal";
-			else if (BuildableArea > 0.68f) Biome = "Pradera Fértil";
-			else Biome = "Desierto / Estepa";
-		}
+			{ "Comida", 0 },
+			{ "Madera", 0 },
+			{ "Piedra", 0 },
+			{ "Carbon", 0 },
+			{ "Cobre", 0 },
+			{ "Hierro", 0 },
+			{ "Bronce", 0 },
+			{ "Acero", 0 }
+		};
+	}
+
+	public void FoundSettlement(string name)
+	{
+		HasSettlement = true;
+		SettlementName = string.IsNullOrWhiteSpace(name) ? $"Colonia #{Id}" : name;
+		TotalPopulation = 12;
+
+		// Suministros iniciales de expedición para levantar los primeros edificios
+		LocalInventory["Comida"] = 120;
+		LocalInventory["Madera"] = 100;
+		LocalInventory["Piedra"] = 60;
+		LocalInventory["Carbon"] = 25;
+		LocalInventory["Cobre"] = 20;
+		LocalInventory["Hierro"] = 15;
+		LocalInventory["Bronce"] = 0;
+		LocalInventory["Acero"] = 0;
 	}
 
 	public bool AddResource(string resourceName, int amount)
@@ -105,19 +100,5 @@ public partial class BasalKey : RefCounted
 
 		LocalInventory[resourceName] -= amount;
 		return true;
-	}
-
-	public void FoundSettlement(string name)
-	{
-		HasSettlement = true;
-		SettlementName = name;
-		TotalPopulation = 10;
-		SurplusPopulation = 0;
-		
-		LocalInventory["Comida"] = 100;
-		LocalInventory["Madera"] = 150;
-		LocalInventory["Minerales"] = 50;
-
-		GD.Print($"[ATK #{Id}] ¡Asentamiento '{SettlementName}' fundado con éxito!");
 	}
 }

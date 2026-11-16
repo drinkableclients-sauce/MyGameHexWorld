@@ -21,6 +21,16 @@ public enum LocalZoneState
 	RocaRecurso,
 	Edificado
 }
+public enum LocalResourceType
+{
+	Ninguno,
+	Madera,
+	Piedra,
+	Carbon,
+	Cobre,
+	Hierro,
+	Arcilla
+}
 
 public class LocalTriangleData
 {
@@ -34,6 +44,9 @@ public class LocalTriangleData
 	public LocalTerrainType TerrainType;
 	public LocalZoneState ZoneState = LocalZoneState.Libre;
 	public string ResourceHint = "Ninguno";
+	public LocalResourceType ResourceType = LocalResourceType.Ninguno;
+	public int ResourceAmount = 0;
+	public int MultiMeshInstanceIndex = -1;
 
 	public bool IsBuildable =>
 		TerrainType != LocalTerrainType.Agua &&
@@ -51,6 +64,9 @@ public partial class LocalMapGenerator : Node3D
 
 	// Lista maestra con todos los triángulos del diorama para gameplay (recursos, cultivos, selección)
 	public List<LocalTriangleData> Triangles { get; private set; } = new List<LocalTriangleData>();
+	// Índice espacial 2D para localizar el triángulo exacto bajo el cursor en O(1)
+	private Dictionary<Vector2I, List<int>> _spatialLookup = new Dictionary<Vector2I, List<int>>();
+	private const float SpatialCellSize = 45.0f;
 
 	private MeshInstance3D _terrainMeshInstance;
 	private MeshInstance3D _wireframeMeshInstance;
@@ -86,6 +102,7 @@ public partial class LocalMapGenerator : Node3D
 		{
 			cameraRig.MaxBoundaryRadius = MapRadius * 0.88f;
 		}
+		SetupDaylightEnvironment();
 	}
 
 	private void InitializeMacroGeophysics()
@@ -585,6 +602,12 @@ public partial class LocalMapGenerator : Node3D
 		};
 		AddChild(_terrainMeshInstance);
 
+		// Crear colisión exacta de la malla para detectar clics y puntero del ratón
+		_terrainMeshInstance.CreateTrimeshCollision();
+
+		// Poblar índice espacial rápido para consultas del cursor
+		BuildSpatialLookup();
+
 		var wireMat = new StandardMaterial3D
 		{
 			ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
@@ -640,4 +663,122 @@ public partial class LocalMapGenerator : Node3D
 		};
 		AddChild(_waterMeshInstance);
 	}
+	private void BuildSpatialLookup()
+	{
+		_spatialLookup.Clear();
+		for (int i = 0; i < Triangles.Count; i++)
+		{
+			var t = Triangles[i];
+			float minX = Mathf.Min(t.V1.X, Mathf.Min(t.V2.X, t.V3.X));
+			float maxX = Mathf.Max(t.V1.X, Mathf.Max(t.V2.X, t.V3.X));
+			float minZ = Mathf.Min(t.V1.Z, Mathf.Min(t.V2.Z, t.V3.Z));
+			float maxZ = Mathf.Max(t.V1.Z, Mathf.Max(t.V2.Z, t.V3.Z));
+
+			int gx0 = Mathf.FloorToInt(minX / SpatialCellSize);
+			int gx1 = Mathf.FloorToInt(maxX / SpatialCellSize);
+			int gz0 = Mathf.FloorToInt(minZ / SpatialCellSize);
+			int gz1 = Mathf.FloorToInt(maxZ / SpatialCellSize);
+
+			for (int gx = gx0; gx <= gx1; gx++)
+			{
+				for (int gz = gz0; gz <= gz1; gz++)
+				{
+					var cell = new Vector2I(gx, gz);
+					if (!_spatialLookup.TryGetValue(cell, out var list))
+					{
+						list = new List<int>(16);
+						_spatialLookup[cell] = list;
+					}
+					list.Add(i);
+				}
+			}
+		}
+	}
+
+	public LocalTriangleData GetTriangleAtPosition(Vector3 worldPos)
+	{
+		int gx = Mathf.FloorToInt(worldPos.X / SpatialCellSize);
+		int gz = Mathf.FloorToInt(worldPos.Z / SpatialCellSize);
+		var cell = new Vector2I(gx, gz);
+
+		if (!_spatialLookup.TryGetValue(cell, out var candidates))
+			return null;
+
+		Vector2 p = new Vector2(worldPos.X, worldPos.Z);
+		LocalTriangleData closest = null;
+		float bestDistSq = float.MaxValue;
+
+		foreach (int idx in candidates)
+		{
+			var t = Triangles[idx];
+			if (IsPointInTriangle2D(p, new Vector2(t.V1.X, t.V1.Z), new Vector2(t.V2.X, t.V2.Z), new Vector2(t.V3.X, t.V3.Z)))
+			{
+				return t;
+			}
+
+			float dSq = t.Center.DistanceSquaredTo(worldPos);
+			if (dSq < bestDistSq)
+			{
+				bestDistSq = dSq;
+				closest = t;
+			}
+		}
+
+		return closest;
+	}
+
+	private static bool IsPointInTriangle2D(Vector2 p, Vector2 a, Vector2 b, Vector2 c)
+	{
+		float d1 = (p.X - b.X) * (a.Y - b.Y) - (a.X - b.X) * (p.Y - b.Y);
+		float d2 = (p.X - c.X) * (b.Y - c.Y) - (b.X - c.X) * (p.Y - c.Y);
+		float d3 = (p.X - a.X) * (c.Y - a.Y) - (c.X - a.X) * (p.Y - a.Y);
+
+		bool hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+		bool hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+		return !(hasNeg && hasPos);
+	}
+	private void SetupDaylightEnvironment()
+{
+	// 1. Sol con tono dorado/cálido y energía equilibrada (sin quemar los colores)
+	var sun = GetNodeOrNull<DirectionalLight3D>("DirectionalLight3D");
+	if (sun == null)
+	{
+		sun = new DirectionalLight3D { Name = "DirectionalLight3D" };
+		AddChild(sun);
+	}
+	sun.RotationDegrees = new Vector3(-45.0f, 42.0f, 0.0f);
+	sun.LightColor = new Color(1.0f, 0.93f, 0.82f); // Luz solar ligeramente dorada
+	sun.LightEnergy = 1f; // Reducido de 1.65 a 1.35 para evitar brillos blancos excessivos
+	sun.ShadowEnabled = true;
+	sun.DirectionalShadowMaxDistance = 2200.0f;
+
+	// 2. Entorno y cielo con mayor saturación y sombras contrastadas
+	var worldEnv = GetNodeOrNull<WorldEnvironment>("WorldEnvironment");
+	if (worldEnv == null)
+	{
+		worldEnv = new WorldEnvironment { Name = "WorldEnvironment" };
+		AddChild(worldEnv);
+	}
+
+	var skyMat = new ProceduralSkyMaterial
+	{
+		SkyTopColor = new Color(0.18f, 0.42f, 0.78f),       // Azul de cielo más profundo y rico
+		SkyHorizonColor = new Color(0.55f, 0.72f, 0.88f),   // Horizonte suave
+		GroundBottomColor = new Color(0.12f, 0.16f, 0.22f),
+		GroundHorizonColor = new Color(0.40f, 0.52f, 0.65f),
+		SunAngleMax = 30.0f
+	};
+
+	var env = new Environment
+	{
+		BackgroundMode = Environment.BGMode.Sky,
+		Sky = new Sky { SkyMaterial = skyMat },
+		AmbientLightSource = Environment.AmbientSource.Sky,
+		AmbientLightEnergy = 0.28f, // BAJADO de 0.65 a 0.28: Esto da sombras oscuras y definidas, eliminando el velo gris
+		TonemapMode = Environment.ToneMapper.Aces, // Da un aspecto cinematográfico y sella los colores vivos
+		FogEnabled = false // Desactivamos el Fog para que no genere neblina blanca en el fondo
+	};
+
+	worldEnv.Environment = env;
+}
 }
